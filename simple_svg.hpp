@@ -166,15 +166,15 @@ namespace svg
         return dimension * layout.scale;
     }
 
-    class Serializeable
+    class Serializable
     {
     public:
-        Serializeable() { }
-        virtual ~Serializeable() { };
+        Serializable() { }
+        virtual ~Serializable() { };
         virtual std::string toString(Layout const & layout) const = 0;
     };
 
-    class Color : public Serializeable
+    class Color : public Serializable
     {
     public:
         enum Defaults { Transparent = -1, Aqua, Black, Blue, Brown, Cyan, Fuchsia,
@@ -228,7 +228,7 @@ namespace svg
             }
     };
 
-    class Fill : public Serializeable
+    class Fill : public Serializable
     {
     public:
         Fill(Color::Defaults color) : color(color) { }
@@ -244,7 +244,7 @@ namespace svg
         Color color;
     };
 
-    class Stroke : public Serializeable
+    class Stroke : public Serializable
     {
     public:
         Stroke(double width = -1, Color color = Color::Transparent, bool nonScalingStroke = false)
@@ -267,7 +267,7 @@ namespace svg
         bool nonScaling;
     };
 
-    class Font : public Serializeable
+    class Font : public Serializable
     {
     public:
         Font(double size = 12, std::string const & family = "Verdana") : size(size), family(family) { }
@@ -282,7 +282,7 @@ namespace svg
         std::string family;
     };
 
-    class Shape : public Serializeable
+    class Shape : public Serializable
     {
     public:
         Shape(Fill const & fill = Fill(), Stroke const & stroke = Stroke())
