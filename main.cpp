@@ -76,5 +76,13 @@ int main()
 
     doc << Rectangle(Point(70, 55), 20, 15, Color::Yellow);
 
+    Container container;
+    container << Circle(Point(50, 50), 10, Fill(Color::Aqua))
+        << (Container(Fill(), Stroke(1, Color::Green))
+            << Line(Point(15, 15), Point(30, 50))
+            << Circle(Point(70, 50), 10, Fill(Color::Orange)));
+
+    doc << container;
+
     doc.save();
 }

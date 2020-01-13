@@ -32,15 +32,40 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef SIMPLE_SVG_HPP
 #define SIMPLE_SVG_HPP
 
-#include <vector>
+#include <fstream>
+#include <memory>
 #include <string>
 #include <sstream>
-#include <fstream>
-
-#include <iostream>
+#include <vector>
 
 namespace svg
 {
+    namespace {
+        /**
+         * Inserts a tab character at each line beginning of the string, i.e. after each line break except the last one
+         * and at the beginning of the string.
+         * Does not insert tab character, if the following line is empty.
+         *
+         * @param original Original string.
+         * @return indented string.
+         */
+        std::string indent(std::string const & original) {
+            std::string result;
+
+            size_t next;
+            size_t current = 0;
+            do {
+                next = original.find('\n', current);
+                if (next != std::string::npos) ++next;
+                std::string substr = original.substr(current, next - current);
+                if(!substr.empty()) result.append("\t").append(substr);
+                current = next;
+            } while (next != std::string::npos && next != original.size());
+
+            return result;
+        }
+    }
+
     // Utility XML/String Functions.
     template <typename T>
     inline std::string attribute(std::string const & attribute_name,
@@ -52,7 +77,7 @@ namespace svg
     }
     inline std::string elemStart(std::string const & element_name)
     {
-        return "\t<" + element_name + " ";
+        return "<" + element_name + " ";
     }
     inline std::string elemEnd(std::string const & element_name)
     {
@@ -290,6 +315,7 @@ namespace svg
         ~Shape() override = default;
         std::string toString(Layout const & layout) const override = 0;
         virtual void offset(Point const & offset) = 0;
+        virtual Shape *clone() const = 0;
     protected:
         Fill fill;
         Stroke stroke;
@@ -324,6 +350,9 @@ namespace svg
             center.x += offset.x;
             center.y += offset.y;
         }
+        Circle *clone() const override {
+            return new Circle(*this);
+        }
     private:
         Point center;
         double radius;
@@ -350,6 +379,9 @@ namespace svg
         {
             center.x += offset.x;
             center.y += offset.y;
+        }
+        Elipse *clone() const override {
+            return new Elipse(*this);
         }
     private:
         Point center;
@@ -378,6 +410,9 @@ namespace svg
         {
             edge.x += offset.x;
             edge.y += offset.y;
+        }
+        Rectangle *clone() const override {
+            return new Rectangle(*this);
         }
     private:
         Point edge;
@@ -410,6 +445,9 @@ namespace svg
             end_point.x += offset.x;
             end_point.y += offset.y;
         }
+        Line *clone() const override {
+            return new Line(*this);
+        }
     private:
         Point start_point;
         Point end_point;
@@ -420,7 +458,7 @@ namespace svg
     public:
          explicit Polygon(Fill const & fill = Fill(), Stroke const & stroke = Stroke())
             : Shape(fill, stroke) { }
-        explicit Polygon(Stroke const & stroke = Stroke()) : Shape(Color::Transparent, stroke) { }
+        explicit Polygon(Stroke const & stroke) : Shape(Color::Transparent, stroke) { }
         Polygon & operator<<(Point const & point)
         {
             points.push_back(point);
@@ -446,6 +484,9 @@ namespace svg
                 point.y += offset.y;
             }
         }
+        Polygon *clone() const override {
+             return new Polygon(*this);
+         }
     private:
         std::vector<Point> points;
     };
@@ -454,7 +495,7 @@ namespace svg
     {
     public:
        explicit Path(Fill const & fill = Fill(), Stroke const & stroke = Stroke())
-          : Shape(fill, stroke) 
+          : Shape(fill, stroke)
        {  startNewSubPath(); }
        explicit Path(Stroke const & stroke = Stroke()) : Shape(Color::Transparent, stroke)
        {  startNewSubPath(); }
@@ -492,7 +533,6 @@ namespace svg
           ss << fill.toString(layout) << stroke.toString(layout) << emptyElemEnd();
           return ss.str();
        }
-
        void offset(Point const & offset) override
        {
           for (auto& subpath : paths)
@@ -501,6 +541,9 @@ namespace svg
                 point.x += offset.x;
                 point.y += offset.y;
              }
+       }
+       Path *clone() const override {
+           return new Path(*this);
        }
     private:
        std::vector<std::vector<Point>> paths;
@@ -511,7 +554,7 @@ namespace svg
     public:
         explicit Polyline(Fill const & fill = Fill(), Stroke const & stroke = Stroke())
             : Shape(fill, stroke) { }
-        explicit Polyline(Stroke const & stroke = Stroke()) : Shape(Color::Transparent, stroke) { }
+        explicit Polyline(Stroke const & stroke) : Shape(Color::Transparent, stroke) { }
         explicit Polyline(std::vector<Point> const & points,
             Fill const & fill = Fill(), Stroke const & stroke = Stroke())
             : Shape(fill, stroke), points(points) { }
@@ -540,6 +583,9 @@ namespace svg
                 point.y += offset.y;
             }
         }
+        Polyline *clone() const override {
+            return new Polyline(*this);
+        }
         std::vector<Point> points;
     };
 
@@ -563,6 +609,9 @@ namespace svg
             origin.x += offset.x;
             origin.y += offset.y;
         }
+        Text *clone() const override {
+            return new Text(*this);
+        }
     private:
         Point origin;
         std::string content;
@@ -574,8 +623,8 @@ namespace svg
     {
     public:
         explicit LineChart(Dimensions margin = Dimensions(), double scale = 1,
-                  Stroke const & axis_stroke = Stroke(.5, Color::Purple))
-            : axis_stroke(axis_stroke), margin(margin), scale(scale) { }
+                           Stroke const & axis_stroke = Stroke(.5, Color::Purple))
+                : axis_stroke(axis_stroke), margin(margin), scale(scale) { }
         LineChart & operator<<(Polyline const & polyline)
         {
             if (polyline.points.empty())
@@ -599,6 +648,9 @@ namespace svg
         {
             for (auto & polyline : polylines)
                 polyline.offset(offset);
+        }
+        LineChart *clone() const override {
+            return new LineChart(*this);
         }
     private:
         Stroke axis_stroke;
@@ -639,7 +691,7 @@ namespace svg
             // Draw the axis.
             Polyline axis(Color::Transparent, axis_stroke);
             axis << Point(margin.width, margin.height + height) << Point(margin.width, margin.height)
-                << Point(margin.width + width, margin.height);
+                 << Point(margin.width + width, margin.height);
 
             return axis.toString(layout);
         }
@@ -654,6 +706,47 @@ namespace svg
 
             return shifted_polyline.toString(layout) + vectorToString(vertices, layout);
         }
+    };
+
+    class Container : public Shape {
+    public:
+        Container(Fill const & fill = Fill(), Stroke const & stroke = Stroke())
+                : Shape(fill, stroke) { }
+        Container(Stroke const & stroke) : Shape(Color::Transparent, stroke) { }
+        Container(Container const & copy) : Shape(copy) {
+            for (auto & child : copy.childs) {
+                childs.emplace_back(child.get()->clone());
+            }
+        }
+        Container & operator<<(Shape const & child)
+        {
+            childs.emplace_back(child.clone());
+            return *this;
+        }
+        std::string toString(Layout const & layout) const override
+        {
+            if (childs.empty()) return "";
+
+            std::string strokeStr = stroke.toString(layout);
+
+            std::stringstream ss;
+            ss << elemStart("g");
+            ss << fill.toString(layout) << stroke.toString(layout) << ">\n";
+
+            for (std::unique_ptr<Shape> const & child : childs) {
+                ss << indent(child->toString(layout));
+            }
+
+            ss << elemEnd("g");
+
+            return ss.str();
+        }
+        void offset(Point const & offset) override { }
+        Container *clone() const override {
+            return new Container(*this);
+        }
+    private:
+        std::vector<std::unique_ptr<Shape>> childs;
     };
 
     class Document
@@ -694,7 +787,7 @@ namespace svg
                 << attribute("xmlns", "http://www.w3.org/2000/svg")
                 << attribute("version", "1.1") << ">\n";
             for (const auto& body_node_str : body_nodes_str_list) {
-                str << body_node_str;
+                str << indent(body_node_str);
             }
             str << elemEnd("svg");
         }
@@ -706,5 +799,4 @@ namespace svg
         std::vector<std::string> body_nodes_str_list;
     };
 }
-
 #endif
