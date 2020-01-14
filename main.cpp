@@ -62,8 +62,6 @@ int main()
             << Line(Point(15, 15), Point(30, 50))
             << Circle(Point(70, 50), 10, Fill(Color::Orange)));
 
-    container.transform(Translation(3, 1.1)).transform(Scaling(1.2));
-
     doc << container;
 
     doc.save();

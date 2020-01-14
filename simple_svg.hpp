@@ -170,22 +170,6 @@ namespace svg
         Point origin_offset;
     };
 
-    // Convert coordinates in user space to SVG native space.
-    inline double translateX(double x, Layout const & layout)
-    {
-        if (layout.origin == Layout::BottomRight || layout.origin == Layout::TopRight)
-            return layout.dimensions.width - ((x + layout.origin_offset.x) * layout.scale);
-        else
-            return (layout.origin_offset.x + x) * layout.scale;
-    }
-
-    inline double translateY(double y, Layout const & layout)
-    {
-        if (layout.origin == Layout::BottomLeft || layout.origin == Layout::BottomRight)
-            return layout.dimensions.height - ((y + layout.origin_offset.y) * layout.scale);
-        else
-            return (layout.origin_offset.y + y) * layout.scale;
-    }
     inline double translateScale(double const dimension, Layout const & layout)
     {
         return dimension * layout.scale;
@@ -196,15 +180,46 @@ namespace svg
     public:
         Serializable() = default;
         virtual ~Serializable() = default;
-        virtual std::string toString(Layout const & layout) const = 0;
+        virtual std::string toString(Layout const &) const = 0;
     };
-    
+
     class Clonable
     {
     public:
         Clonable() = default;
         virtual ~Clonable() = default;
         virtual Clonable *clone() const = 0;
+    };
+
+    class Flipable {
+    public:
+        explicit Flipable(Point origin) : origin(origin) { }
+    protected:
+        std::string flip(Layout const & layout) const {
+            bool flipVertically = false;
+            bool flipHorizontally = false;
+            switch(layout.origin)
+            {
+                case Layout::BottomLeft:
+                    flipHorizontally = true;
+                    break;
+                case Layout::TopRight:
+                    flipVertically = true;
+                    break;
+                case Layout::BottomRight:
+                    flipHorizontally = true;
+                    flipVertically = true;
+                    break;
+                case Layout::TopLeft:
+                    break;
+            }
+            std::stringstream ss;
+            ss << "translate(" << origin.x << " " << origin.y << ") scale(" << (flipVertically ? -1 : 1) << " "
+               << (flipHorizontally ? -1 : 1) << ") translate(" << -origin.x << " " << -origin.y << ")";
+
+            return attribute("transform", ss.str());
+        }
+        Point origin;
     };
 
     class Color : public Serializable
@@ -300,47 +315,6 @@ namespace svg
         bool nonScaling;
     };
 
-    class Transformation : public Serializable, public Clonable {
-    public:
-        Transformation() = default;
-        ~Transformation() override = default;
-        std::string toString(Layout const & layout) const override = 0;
-        Transformation *clone() const override = 0;
-    };
-
-    class Translation : public Transformation {
-    public:
-        explicit Translation(float x, float y = 0) : x(x), y(y) { }
-        ~Translation() override = default;
-        std::string toString(Layout const & layout) const override {
-            std::stringstream ss;
-            ss << "translate(" << x << "," << y << ")";
-            return ss.str();
-        }
-        Translation *clone() const override {
-            return new Translation(*this);
-        }
-    private:
-        float x, y;
-    };
-
-    class Scaling : public Transformation {
-    public:
-        Scaling(float x, float y) : x(x), y(y) { }
-        explicit Scaling(float x) : x(x), y(x) { }
-        ~Scaling() override = default;
-        std::string toString(Layout const & layout) const override {
-            std::stringstream ss;
-            ss << "scale(" << x << "," << y << ")";
-            return ss.str();
-        }
-        Scaling *clone() const override {
-            return new Scaling(*this);
-        }
-    private:
-        float x, y;
-    };
-
     class Font : public Serializable
     {
     public:
@@ -361,34 +335,13 @@ namespace svg
     public:
         explicit Shape(Fill const & fill = Fill(), Stroke const & stroke = Stroke())
             : fill(fill), stroke(stroke) { }
-        Shape(Shape const & copy) {
-            stroke = copy.stroke;
-            fill = copy.fill;
-            for (auto & transformation : copy.transformations) {
-                transformations.emplace_back(transformation->clone());
-            }
-        }
         ~Shape() override = default;
-        Shape & transform(Transformation const & transformation)
-        {
-            transformations.emplace_back(transformation.clone());
-            return *this;
-        }
         std::string toString(Layout const & layout) const override = 0;
         virtual void offset(Point const & offset) = 0;
         Shape *clone() const override = 0;
     protected:
         Fill fill;
         Stroke stroke;
-        std::vector<std::unique_ptr<Transformation>> transformations;
-        std::string transformationsToString (Layout const & layout) const {
-            std::string value;
-            for (auto & transformation : transformations) {
-                value += transformation->toString(layout);
-            }
-            if (value.empty()) return "";
-            return attribute("transform", value);
-        }
     };
     template <typename T>
     inline std::string vectorToString(std::vector<T> collection, Layout const & layout)
@@ -409,10 +362,10 @@ namespace svg
         std::string toString(Layout const & layout) const override
         {
             std::stringstream ss;
-            ss << elemStart("circle") << attribute("cx", translateX(center.x, layout))
-               << attribute("cy", translateY(center.y, layout))
+            ss << elemStart("circle") << attribute("cx", center.x)
+               << attribute("cy", center.y)
                << attribute("r", translateScale(radius, layout)) << fill.toString(layout)
-               << stroke.toString(layout) << transformationsToString(layout) << emptyElemEnd();
+               << stroke.toString(layout) << emptyElemEnd();
             return ss.str();
         }
         void offset(Point const & offset) override
@@ -438,11 +391,11 @@ namespace svg
         std::string toString(Layout const & layout) const override
         {
             std::stringstream ss;
-            ss << elemStart("ellipse") << attribute("cx", translateX(center.x, layout))
-                << attribute("cy", translateY(center.y, layout))
+            ss << elemStart("ellipse") << attribute("cx", center.x)
+                << attribute("cy", center.y)
                 << attribute("rx", translateScale(radius_width, layout))
                 << attribute("ry", translateScale(radius_height, layout))
-                << fill.toString(layout) << stroke.toString(layout) << transformationsToString(layout) << emptyElemEnd();
+                << fill.toString(layout) << stroke.toString(layout) << emptyElemEnd();
             return ss.str();
         }
         void offset(Point const & offset) override
@@ -469,11 +422,11 @@ namespace svg
         std::string toString(Layout const & layout) const override
         {
             std::stringstream ss;
-            ss << elemStart("rect") << attribute("x", translateX(edge.x, layout))
-                << attribute("y", translateY(edge.y, layout))
+            ss << elemStart("rect") << attribute("x", edge.x)
+                << attribute("y", edge.y)
                 << attribute("width", translateScale(width, layout))
                 << attribute("height", translateScale(height, layout))
-                << fill.toString(layout) << stroke.toString(layout) << transformationsToString(layout) << emptyElemEnd();
+                << fill.toString(layout) << stroke.toString(layout) << emptyElemEnd();
             return ss.str();
         }
         void offset(Point const & offset) override
@@ -500,11 +453,11 @@ namespace svg
         std::string toString(Layout const & layout) const override
         {
             std::stringstream ss;
-            ss << elemStart("line") << attribute("x1", translateX(start_point.x, layout))
-                << attribute("y1", translateY(start_point.y, layout))
-                << attribute("x2", translateX(end_point.x, layout))
-                << attribute("y2", translateY(end_point.y, layout))
-                << stroke.toString(layout) << transformationsToString(layout) << emptyElemEnd();
+            ss << elemStart("line") << attribute("x1", start_point.x)
+                << attribute("y1", start_point.y)
+                << attribute("x2", end_point.x)
+                << attribute("y2", end_point.y)
+                << stroke.toString(layout) << emptyElemEnd();
             return ss.str();
         }
         void offset(Point const & offset) override
@@ -541,10 +494,10 @@ namespace svg
 
             ss << "points=\"";
             for (auto & point : points)
-                ss << translateX(point.x, layout) << "," << translateY(point.y, layout) << " ";
+                ss << point.x << "," << point.y << " ";
             ss << "\" ";
 
-            ss << fill.toString(layout) << stroke.toString(layout) << transformationsToString(layout) << emptyElemEnd();
+            ss << fill.toString(layout) << stroke.toString(layout) << emptyElemEnd();
             return ss.str();
         }
         void offset(Point const & offset) override
@@ -594,13 +547,13 @@ namespace svg
 
              ss << "M";
              for (auto const& point: subpath)
-                ss << translateX(point.x, layout) << "," << translateY(point.y, layout) << " ";
+                ss << point.x << "," << point.y << " ";
              ss << "z ";
           }
           ss << "\" ";
           ss << "fill-rule=\"evenodd\" ";
 
-          ss << fill.toString(layout) << stroke.toString(layout) << transformationsToString(layout) << emptyElemEnd();
+          ss << fill.toString(layout) << stroke.toString(layout) << emptyElemEnd();
           return ss.str();
        }
        void offset(Point const & offset) override
@@ -640,10 +593,10 @@ namespace svg
 
             ss << "points=\"";
             for (auto & point : points)
-                ss << translateX(point.x, layout) << "," << translateY(point.y, layout) << " ";
+                ss << point.x << "," << point.y << " ";
             ss << "\" ";
 
-            ss << fill.toString(layout) << stroke.toString(layout) << transformationsToString(layout) << emptyElemEnd();
+            ss << fill.toString(layout) << stroke.toString(layout) << emptyElemEnd();
             return ss.str();
         }
         void offset(Point const & offset) override
@@ -659,18 +612,19 @@ namespace svg
         std::vector<Point> points;
     };
 
-    class Text : public Shape
+    class Text : public Shape, public Flipable
     {
     public:
         Text(Point const & origin, std::string const & content, Fill const & fill = Fill(),
              Font const & font = Font(), Stroke const & stroke = Stroke())
-            : Shape(fill, stroke), origin(origin), content(content), font(font) { }
+            : Shape(fill, stroke), Flipable(origin), content(content), font(font) { }
         std::string toString(Layout const & layout) const override
         {
+            flip(layout);
             std::stringstream ss;
-            ss << elemStart("text") << attribute("x", translateX(origin.x, layout))
-                << attribute("y", translateY(origin.y, layout))
-                << fill.toString(layout) << stroke.toString(layout) << transformationsToString(layout) << font.toString(layout)
+            ss << elemStart("text") << attribute("x", origin.x)
+                << attribute("y", origin.y)
+                << fill.toString(layout) << stroke.toString(layout) << flip(layout) << font.toString(layout)
                 << ">" << content << elemEnd("text");
             return ss.str();
         }
@@ -683,7 +637,6 @@ namespace svg
             return new Text(*this);
         }
     private:
-        Point origin;
         std::string content;
         Font font;
     };
@@ -711,7 +664,7 @@ namespace svg
 
             std::stringstream ss;
             ss << elemStart("g");
-            ss << fill.toString(layout) << stroke.toString(layout) << transformationsToString(layout) << ">\n";
+            ss << fill.toString(layout) << stroke.toString(layout) << layoutTransformation << ">\n";
 
             for (std::unique_ptr<Shape> const & child : childs) {
                 ss << indent(child->toString(layout));
@@ -725,8 +678,38 @@ namespace svg
         Container *clone() const override {
             return new Container(*this);
         }
+        void addLayoutTransformation(Layout const & layout) {
+            bool flipVertically = false;
+            bool flipHorizontally = false;
+            float translateX = 0;
+            float translateY = 0;
+            switch(layout.origin)
+            {
+                case Layout::BottomLeft:
+                    flipHorizontally = true;
+                    translateY = - layout.dimensions.height;
+                    break;
+                case Layout::TopRight:
+                    flipVertically = true;
+                    translateX = - layout.dimensions.width;
+                    break;
+                case Layout::BottomRight:
+                    flipHorizontally = true;
+                    flipVertically = true;
+                    translateX = - layout.dimensions.width;
+                    translateY = - layout.dimensions.height;
+                    break;
+                default:
+                    break;
+            }
+            std::stringstream ss;
+            ss << "scale(" << (flipVertically ? -1 : 1) << " " << (flipHorizontally ? -1 : 1) << ") translate("
+               << translateX << " " << translateY << ")";
+            layoutTransformation = attribute("transform", ss.str());
+        }
     private:
         std::vector<std::unique_ptr<Shape>> childs;
+        std::string layoutTransformation;
     };
 
     class Document
@@ -737,7 +720,7 @@ namespace svg
 
         Document & operator<<(Shape const & shape)
         {
-            body_nodes_str_list.push_back(shape.toString(layout));
+            body_nodes_list.emplace_back(shape.clone());
             return *this;
         }
         std::string toString() const
@@ -766,9 +749,22 @@ namespace svg
                 << attribute("height", layout.dimensions.height, "px")
                 << attribute("xmlns", "http://www.w3.org/2000/svg")
                 << attribute("version", "1.1") << ">\n";
-            for (const auto& body_node_str : body_nodes_str_list) {
-                str << indent(body_node_str);
+
+            if (layout.origin != Layout::TopLeft)
+            {
+                Container layoutContainer;
+                layoutContainer.addLayoutTransformation(layout);
+
+                for (const auto& body_node : body_nodes_list) {
+                    layoutContainer << *body_node;
+                }
+                str << layoutContainer.toString(layout);
+            } else {
+                for (const auto& body_node : body_nodes_list) {
+                    str << body_node->toString(layout);
+                }
             }
+
             str << elemEnd("svg");
         }
 
@@ -776,7 +772,7 @@ namespace svg
         std::string file_name;
         Layout layout;
 
-        std::vector<std::string> body_nodes_str_list;
+        std::vector<std::unique_ptr<Shape>> body_nodes_list;
     };
 }
 #endif
